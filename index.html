@@ -1,113 +1,69 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <title>班級遲到統計系統</title>
-  <style>
-    body {
-      font-family: "Microsoft JhengHei", sans-serif;
-      padding: 20px;
-      background: #f4f6f8;
-    }
-
-    h1 {
-      text-align: center;
-    }
-
-    .card {
-      background: white;
-      padding: 20px;
-      margin: 15px auto;
-      max-width: 900px;
-      border-radius: 12px;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-    }
-
-    .student-grid {
-      display: grid;
-      grid-template-columns: repeat(10, 1fr);
-      gap: 10px;
-    }
-
-    button {
-      padding: 12px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 18px;
-      background: #e0e0e0;
-    }
-
-    button.late {
-      background: #ffb74d;
-      color: #000;
-      font-weight: bold;
-    }
-
-    .status-grid {
-      display: grid;
-      grid-template-columns: repeat(10, 1fr);
-      gap: 10px;
-      margin-top: 15px;
-    }
-
-    .status {
-      text-align: center;
-      padding: 12px;
-      border-radius: 8px;
-      background: #dcedc8;
-      font-weight: bold;
-    }
-
-    .warning {
-      background: #ef5350;
-      color: white;
-      animation: blink 1s infinite;
-    }
-
-    @keyframes blink {
-      50% { opacity: 0.55; }
-    }
-
-    .date-box {
-      text-align: center;
-      font-size: 18px;
-      font-weight: bold;
-      color: #333;
-    }
-
-    .note {
-      color: #555;
-      line-height: 1.8;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>班級遲到統計系統</title>
+<style>
+body{font-family:"Microsoft JhengHei",sans-serif;background:#f4f6f8;padding:20px}
+.card{background:white;padding:20px;margin:15px auto;max-width:1000px;border-radius:14px;box-shadow:0 3px 10px #0002}
+h1{text-align:center}
+.grid{display:grid;grid-template-columns:repeat(10,1fr);gap:10px}
+button{padding:10px;border:0;border-radius:8px;cursor:pointer;font-size:16px}
+.num{background:#e0e0e0}
+.late{background:#ffb74d;font-weight:bold}
+.red{background:#e53935!important;color:white;font-weight:bold}
+.green{background:#66bb6a;color:white}
+.gray{background:#9e9e9e;color:white}
+input{padding:8px;font-size:16px}
+table{width:100%;border-collapse:collapse}
+td,th{border:1px solid #ccc;padding:8px;text-align:center}
+.warning{color:#e53935;font-weight:bold}
+</style>
 </head>
 <body>
 
-  <h1>班級遲到統計系統</h1>
+<h1>班級遲到統計系統</h1>
 
-  <div class="card date-box">
-    今日日期：<span id="todayText"></span>
-  </div>
+<div class="card">
+  <h2>選擇日期</h2>
+  <input type="date" id="datePicker">
+  <button onclick="toggleHoliday()">切換假日 / 上課日</button>
+  <p id="holidayText"></p>
+</div>
 
-  <div class="card">
-    <h2>幹部點選今日遲到號碼</h2>
-    <p class="note">點一下代表今天遲到，再點一次可以取消。</p>
-    <div id="studentButtons" class="student-grid"></div>
-  </div>
+<div class="card">
+  <h2>今日遲到點選</h2>
+  <p>每次修改都需要輸入密碼。</p>
+  <div id="studentButtons" class="grid"></div>
+</div>
 
-  <div class="card">
-    <h2>目前統計狀況</h2>
-    <p class="note">橘色代表最近三天內有遲到；紅色代表連續三天遲到。</p>
-    <div id="statusArea" class="status-grid"></div>
-  </div>
+<div class="card">
+  <h2>連續三個上課日遲到警示</h2>
+  <p id="schoolDaysText"></p>
+  <div id="redList"></div>
+</div>
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+<div class="card">
+  <h2>全班處罰次數統計</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>座號</th>
+        <th>處罰次數</th>
+        <th>狀態</th>
+      </tr>
+    </thead>
+    <tbody id="punishTable"></tbody>
+  </table>
+</div>
 
-    // 這裡換成你的 Firebase 設定
-    const firebaseConfig = {
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
+
+const ADMIN_PASSWORD = "55660526";
+
+const firebaseConfig = {
   apiKey: "AIzaSyD60CAmUvj52wScu7CFADKdRz4KFPR_YZU",
   authDomain: "rollcall-dd142.firebaseapp.com",
   databaseURL: "https://rollcall-dd142-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -118,94 +74,253 @@
   measurementId: "G-9BPCT93DX7"
 };
 
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
 
-    const className = "class-2-2";
-    const studentCount = 40;
+const className = "class-2-2";
+const studentCount = 40;
 
-    const today = getDateString(0);
-    const yesterday = getDateString(-1);
-    const beforeYesterday = getDateString(-2);
+let selectedDate = new Date().toISOString().slice(0,10);
+let allLateData = {};
+let punishmentData = {};
+let tempLateList = [];
 
-    const todayRef = ref(db, `lateData/${className}/${today}`);
-    const allDataRef = ref(db, `lateData/${className}`);
+const datePicker = document.getElementById("datePicker");
+datePicker.value = selectedDate;
 
-    let todayLateList = [];
-    let allLateData = {};
+datePicker.addEventListener("change", () => {
+  selectedDate = datePicker.value;
+  tempLateList = [];
+  renderAll();
+});
 
-    document.getElementById("todayText").textContent = today;
+function checkPassword(){
+  const pw = prompt("請輸入幹部密碼");
+  return pw === ADMIN_PASSWORD;
+}
 
-    function getDateString(offset) {
-      const date = new Date();
-      date.setDate(date.getDate() + offset);
-      return date.toISOString().slice(0, 10);
+function getDateOffset(dateStr, offset){
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0,10);
+}
+
+function getSchoolDays(endDate){
+  const days = [];
+  let date = endDate;
+
+  while(days.length < 3){
+    const data = allLateData[date] || {};
+    if(data.holiday !== true){
+      days.push(date);
+    }
+    date = getDateOffset(date, -1);
+  }
+
+  return days;
+}
+
+function getLateList(date){
+  return allLateData[date]?.late || [];
+}
+
+async function saveDateData(date, data){
+  if(!checkPassword()) {
+    alert("密碼錯誤，未儲存。");
+    return;
+  }
+  await set(ref(db, `lateData/${className}/${date}`), data);
+}
+
+window.toggleHoliday = async function(){
+  const data = allLateData[selectedDate] || { late: [], holiday: false };
+  data.holiday = !data.holiday;
+  await saveDateData(selectedDate, data);
+}
+function renderButtons(){
+  const area = document.getElementById("studentButtons");
+  area.innerHTML = "";
+
+  const data = allLateData[selectedDate] || { late: [], holiday: false };
+
+  if(tempLateList.length === 0){
+    tempLateList = [...(data.late || [])];
+  }
+
+  for(let i=1;i<=studentCount;i++){
+    const btn = document.createElement("button");
+
+    btn.textContent = i + "號";
+    btn.className = "num";
+
+    if(tempLateList.includes(i)){
+      btn.classList.add("late");
     }
 
-    function renderStudentButtons() {
-      const area = document.getElementById("studentButtons");
-      area.innerHTML = "";
+    btn.onclick = () => {
 
-      for (let i = 1; i <= studentCount; i++) {
-        const btn = document.createElement("button");
-        btn.textContent = i;
-
-        if (todayLateList.includes(i)) {
-          btn.classList.add("late");
-        }
-
-        btn.onclick = async () => {
-          if (todayLateList.includes(i)) {
-            todayLateList = todayLateList.filter(num => num !== i);
-          } else {
-            todayLateList.push(i);
-          }
-
-          todayLateList.sort((a, b) => a - b);
-          await set(todayRef, todayLateList);
-        };
-
-        area.appendChild(btn);
+      if(tempLateList.includes(i)){
+        tempLateList = tempLateList.filter(n => n !== i);
+      }else{
+        tempLateList.push(i);
       }
+
+      tempLateList.sort((a,b)=>a-b);
+
+      renderButtons();
+    };
+
+    area.appendChild(btn);
+  }
+
+  const saveBtn = document.createElement("button");
+
+  saveBtn.textContent = "確認送出";
+  saveBtn.style.marginTop = "20px";
+  saveBtn.style.background = "#1976d2";
+  saveBtn.style.color = "white";
+  saveBtn.style.fontWeight = "bold";
+
+  saveBtn.onclick = async () => {
+
+    if(!checkPassword()){
+      alert("密碼錯誤");
+      return;
     }
 
-    function renderStatus() {
-      const area = document.getElementById("statusArea");
-      area.innerHTML = "";
+    const newData = allLateData[selectedDate] || {
+      late: [],
+      holiday: false
+    };
 
-      for (let i = 1; i <= studentCount; i++) {
-        const div = document.createElement("div");
-        div.className = "status";
+    newData.late = tempLateList;
 
-        const late1 = allLateData[today]?.includes(i);
-        const late2 = allLateData[yesterday]?.includes(i);
-        const late3 = allLateData[beforeYesterday]?.includes(i);
+    await set(
+      ref(db, `lateData/${className}/${selectedDate}`),
+      newData
+    );
 
-        const recentLateCount = [late1, late2, late3].filter(Boolean).length;
+    alert("已儲存！");
+  };
 
-        div.textContent = `${i}號`;
+  area.appendChild(document.createElement("br"));
+  area.appendChild(saveBtn);
+}
 
-        if (late1 && late2 && late3) {
-          div.classList.add("warning");
-          div.textContent = `${i}號 紅燈`;
-        } else if (recentLateCount > 0) {
-          div.style.background = "#ffcc80";
-        }
 
-        area.appendChild(div);
-      }
-    }
+function renderHoliday(){
+  const data = allLateData[selectedDate] || {};
+  const text = document.getElementById("holidayText");
 
-    onValue(todayRef, snapshot => {
-      todayLateList = snapshot.val() || [];
-      renderStudentButtons();
-    });
+  if(data.holiday === true){
+    text.innerHTML = `<span class="warning">${selectedDate} 是假日，不列入連續三天計算。</span>`;
+  }else{
+    text.innerHTML = `${selectedDate} 是上課日，會列入連續三天計算。`;
+  }
+}
 
-    onValue(allDataRef, snapshot => {
-      allLateData = snapshot.val() || {};
-      renderStatus();
-    });
-  </script>
+function renderRedList(){
+  const area = document.getElementById("redList");
+  const schoolDays = getSchoolDays(selectedDate);
+
+  document.getElementById("schoolDaysText").innerHTML =
+    `目前計算的三個上課日：<b>${schoolDays.join("、")}</b>`;
+
+  const redStudents = [];
+
+  for(let i=1;i<=studentCount;i++){
+    const isLateAll = schoolDays.every(date => getLateList(date).includes(i));
+    if(isLateAll) redStudents.push(i);
+  }
+
+  if(redStudents.length === 0){
+    area.innerHTML = "<p>目前沒有連續三個上課日遲到的同學。</p>";
+    return;
+  }
+
+  let html = `<table>
+    <tr>
+      <th>座號</th>
+      <th>連續遲到日期</th>
+      <th>處罰狀態</th>
+      <th>操作</th>
+    </tr>`;
+
+  redStudents.forEach(num => {
+    const key = `${selectedDate}_${num}`;
+    const record = punishmentData[key];
+    const punished = record?.status === "punished";
+
+    html += `
+      <tr>
+        <td class="red">${num}號</td>
+        <td>${schoolDays.join("、")}</td>
+        <td>${punished ? "已處罰" : "未處罰"}</td>
+        <td>
+          <button onclick="setPunishment(${num}, '${key}', '${punished ? "unpunished" : "punished"}')">
+            ${punished ? "改回未處罰" : "標記已處罰"}
+          </button>
+        </td>
+      </tr>`;
+  });
+
+  html += "</table>";
+  area.innerHTML = html;
+}
+
+window.setPunishment = async function(num, key, status){
+  if(!checkPassword()){
+    alert("密碼錯誤，未儲存。");
+    return;
+  }
+
+  const schoolDays = getSchoolDays(selectedDate);
+
+  await set(ref(db, `punishments/${className}/${key}`), {
+    student: num,
+    endDate: selectedDate,
+    schoolDays: schoolDays,
+    status: status,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function renderPunishTable(){
+  const tbody = document.getElementById("punishTable");
+  tbody.innerHTML = "";
+
+  for(let i=1;i<=studentCount;i++){
+    const count = Object.values(punishmentData).filter(r =>
+      r.student === i && r.status === "punished"
+    ).length;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${i}號</td>
+      <td>${count}</td>
+      <td>${count > 0 ? "已有處罰紀錄" : "無處罰紀錄"}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function renderAll(){
+  renderHoliday();
+  renderButtons();
+  renderRedList();
+  renderPunishTable();
+}
+
+onValue(ref(db, `lateData/${className}`), snapshot => {
+  allLateData = snapshot.val() || {};
+  renderAll();
+});
+
+onValue(ref(db, `punishments/${className}`), snapshot => {
+  punishmentData = snapshot.val() || {};
+  renderAll();
+});
+</script>
 
 </body>
 </html>
