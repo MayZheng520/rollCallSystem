@@ -4,22 +4,47 @@
 <meta charset="UTF-8">
 <title>班級遲到統計系統</title>
 <style>
-body{font-family:"Microsoft JhengHei",sans-serif;background:#f4f6f8;padding:20px}
-.card{background:white;padding:20px;margin:15px auto;max-width:1000px;border-radius:14px;box-shadow:0 3px 10px #0002}
+body{
+  font-family:"Microsoft JhengHei",sans-serif;
+  background:#f4f6f8;
+  padding:20px;
+}
 h1{text-align:center}
-.grid{display:grid;grid-template-columns:repeat(10,1fr);gap:10px}
-button{padding:10px;border:0;border-radius:8px;cursor:pointer;font-size:16px}
+.card{
+  background:white;
+  padding:20px;
+  margin:15px auto;
+  max-width:1050px;
+  border-radius:14px;
+  box-shadow:0 3px 10px #0002;
+}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(10,1fr);
+  gap:10px;
+}
+button{
+  padding:10px;
+  border:0;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:16px;
+}
 .num{background:#e0e0e0}
 .late{background:#ffb74d;font-weight:bold}
+.save{background:#1976d2;color:white;font-weight:bold;margin-top:20px}
+.yellow{background:#fdd835!important;color:#000;font-weight:bold}
 .red{background:#e53935!important;color:white;font-weight:bold}
 .green{background:#66bb6a;color:white}
 .gray{background:#9e9e9e;color:white}
 input{padding:8px;font-size:16px}
-table{width:100%;border-collapse:collapse}
+table{width:100%;border-collapse:collapse;margin-top:10px}
 td,th{border:1px solid #ccc;padding:8px;text-align:center}
+.note{color:#555;line-height:1.8}
 .warning{color:#e53935;font-weight:bold}
 </style>
 </head>
+
 <body>
 
 <h1>班級遲到統計系統</h1>
@@ -33,12 +58,19 @@ td,th{border:1px solid #ccc;padding:8px;text-align:center}
 
 <div class="card">
   <h2>今日遲到點選</h2>
-  <p>每次修改都需要輸入密碼。</p>
+  <p class="note">先點選今天遲到的座號，全部點完後再按「確認送出」，只需要輸入一次密碼。</p>
   <div id="studentButtons" class="grid"></div>
 </div>
 
 <div class="card">
-  <h2>連續三個上課日遲到警示</h2>
+  <h2>兩日遲到警示：黃燈區</h2>
+  <p class="note">最近三個上課日內，已有兩天遲到者會顯示在這裡。</p>
+  <div id="yellowList"></div>
+</div>
+
+<div class="card">
+  <h2>三日遲到警示：紅燈區</h2>
+  <p class="note">最近三個上課日皆遲到者會顯示在這裡，並可標記是否已處罰。</p>
   <p id="schoolDaysText"></p>
   <div id="redList"></div>
 </div>
@@ -59,9 +91,9 @@ td,th{border:1px solid #ccc;padding:8px;text-align:center}
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
-import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
 
-const ADMIN_PASSWORD = "55660526";
+const ADMIN_PASSWORD = "1234"; // 改成你的幹部密碼
 
 const firebaseConfig = {
   apiKey: "AIzaSyD60CAmUvj52wScu7CFADKdRz4KFPR_YZU",
@@ -95,7 +127,7 @@ datePicker.addEventListener("change", () => {
 });
 
 function checkPassword(){
-  const pw = prompt("請輸入幹部密碼");
+  const pw = prompt("55660526");
   return pw === ADMIN_PASSWORD;
 }
 
@@ -105,13 +137,28 @@ function getDateOffset(dateStr, offset){
   return d.toISOString().slice(0,10);
 }
 
+function isWeekend(dateStr){
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
+function isHoliday(dateStr){
+  const data = allLateData[dateStr];
+
+  if(data && data.holiday !== undefined){
+    return data.holiday === true;
+  }
+
+  return isWeekend(dateStr);
+}
+
 function getSchoolDays(endDate){
   const days = [];
   let date = endDate;
 
   while(days.length < 3){
-    const data = allLateData[date] || {};
-    if(data.holiday !== true){
+    if(!isHoliday(date)){
       days.push(date);
     }
     date = getDateOffset(date, -1);
@@ -125,23 +172,48 @@ function getLateList(date){
 }
 
 async function saveDateData(date, data){
-  if(!checkPassword()) {
+  if(!checkPassword()){
     alert("密碼錯誤，未儲存。");
     return;
   }
+
   await set(ref(db, `lateData/${className}/${date}`), data);
+  alert("已儲存！");
 }
 
 window.toggleHoliday = async function(){
-  const data = allLateData[selectedDate] || { late: [], holiday: false };
-  data.holiday = !data.holiday;
-  await saveDateData(selectedDate, data);
+  const current = allLateData[selectedDate] || {
+    late: [],
+    holiday: isWeekend(selectedDate)
+  };
+
+  const newData = {
+    late: current.late || [],
+    holiday: !isHoliday(selectedDate)
+  };
+
+  await saveDateData(selectedDate, newData);
 }
+
+function renderHoliday(){
+  const text = document.getElementById("holidayText");
+  const weekendText = isWeekend(selectedDate) ? "系統判斷為星期六或星期日。" : "系統判斷為平日。";
+
+  if(isHoliday(selectedDate)){
+    text.innerHTML = `<span class="warning">${selectedDate} 是假日，不列入連續天數計算。</span><br>${weekendText}`;
+  }else{
+    text.innerHTML = `${selectedDate} 是上課日，會列入連續天數計算。<br>${weekendText}`;
+  }
+}
+
 function renderButtons(){
   const area = document.getElementById("studentButtons");
   area.innerHTML = "";
 
-  const data = allLateData[selectedDate] || { late: [], holiday: false };
+  const data = allLateData[selectedDate] || {
+    late: [],
+    holiday: isWeekend(selectedDate)
+  };
 
   if(tempLateList.length === 0){
     tempLateList = [...(data.late || [])];
@@ -149,7 +221,6 @@ function renderButtons(){
 
   for(let i=1;i<=studentCount;i++){
     const btn = document.createElement("button");
-
     btn.textContent = i + "號";
     btn.className = "num";
 
@@ -158,7 +229,6 @@ function renderButtons(){
     }
 
     btn.onclick = () => {
-
       if(tempLateList.includes(i)){
         tempLateList = tempLateList.filter(n => n !== i);
       }else{
@@ -166,7 +236,6 @@ function renderButtons(){
       }
 
       tempLateList.sort((a,b)=>a-b);
-
       renderButtons();
     };
 
@@ -174,67 +243,87 @@ function renderButtons(){
   }
 
   const saveBtn = document.createElement("button");
-
   saveBtn.textContent = "確認送出";
-  saveBtn.style.marginTop = "20px";
-  saveBtn.style.background = "#1976d2";
-  saveBtn.style.color = "white";
-  saveBtn.style.fontWeight = "bold";
+  saveBtn.className = "save";
 
   saveBtn.onclick = async () => {
-
-    if(!checkPassword()){
-      alert("密碼錯誤");
-      return;
-    }
-
-    const newData = allLateData[selectedDate] || {
-      late: [],
-      holiday: false
+    const newData = {
+      late: tempLateList,
+      holiday: isHoliday(selectedDate)
     };
 
-    newData.late = tempLateList;
-
-    await set(
-      ref(db, `lateData/${className}/${selectedDate}`),
-      newData
-    );
-
-    alert("已儲存！");
+    await saveDateData(selectedDate, newData);
   };
 
   area.appendChild(document.createElement("br"));
   area.appendChild(saveBtn);
 }
 
+function getLateWarningStudents(){
+  const schoolDays = getSchoolDays(selectedDate);
 
-function renderHoliday(){
-  const data = allLateData[selectedDate] || {};
-  const text = document.getElementById("holidayText");
+  const todaySchoolDay = schoolDays[0];
+  const previousSchoolDay = schoolDays[1];
+  const thirdSchoolDay = schoolDays[2];
 
-  if(data.holiday === true){
-    text.innerHTML = `<span class="warning">${selectedDate} 是假日，不列入連續三天計算。</span>`;
-  }else{
-    text.innerHTML = `${selectedDate} 是上課日，會列入連續三天計算。`;
+  const yellowStudents = [];
+  const redStudents = [];
+
+  for(let i = 1; i <= studentCount; i++){
+    const lateToday = getLateList(todaySchoolDay).includes(i);
+    const latePrevious = getLateList(previousSchoolDay).includes(i);
+    const lateThird = getLateList(thirdSchoolDay).includes(i);
+
+    if(lateToday && latePrevious && !lateThird){
+      yellowStudents.push(i);
+    }
+
+    if(lateToday && latePrevious && lateThird){
+      redStudents.push(i);
+    }
   }
+
+  return { schoolDays, yellowStudents, redStudents };
+}
+function renderYellowList(){
+  const area = document.getElementById("yellowList");
+  const { schoolDays, yellowStudents } = getLateWarningStudents();
+
+  if(yellowStudents.length === 0){
+    area.innerHTML = `<p>目前沒有兩日遲到警示。</p>`;
+    return;
+  }
+
+  let html = `<p>目前計算的三個上課日：<b>${schoolDays.join("、")}</b></p>`;
+  html += `<table>
+    <tr>
+      <th>座號</th>
+      <th>遲到天數</th>
+      <th>警示</th>
+    </tr>`;
+
+  yellowStudents.forEach(num => {
+    html += `
+      <tr>
+        <td class="yellow">${num}號</td>
+        <td>2天</td>
+        <td>黃燈提醒</td>
+      </tr>`;
+  });
+
+  html += "</table>";
+  area.innerHTML = html;
 }
 
 function renderRedList(){
   const area = document.getElementById("redList");
-  const schoolDays = getSchoolDays(selectedDate);
+  const { schoolDays, redStudents } = getLateWarningStudents();
 
   document.getElementById("schoolDaysText").innerHTML =
     `目前計算的三個上課日：<b>${schoolDays.join("、")}</b>`;
 
-  const redStudents = [];
-
-  for(let i=1;i<=studentCount;i++){
-    const isLateAll = schoolDays.every(date => getLateList(date).includes(i));
-    if(isLateAll) redStudents.push(i);
-  }
-
   if(redStudents.length === 0){
-    area.innerHTML = "<p>目前沒有連續三個上課日遲到的同學。</p>";
+    area.innerHTML = "<p>目前沒有三日遲到紅燈警示。</p>";
     return;
   }
 
@@ -283,6 +372,8 @@ window.setPunishment = async function(num, key, status){
     status: status,
     updatedAt: new Date().toISOString()
   });
+
+  alert("處罰狀態已更新！");
 }
 
 function renderPunishTable(){
@@ -307,12 +398,14 @@ function renderPunishTable(){
 function renderAll(){
   renderHoliday();
   renderButtons();
+  renderYellowList();
   renderRedList();
   renderPunishTable();
 }
 
 onValue(ref(db, `lateData/${className}`), snapshot => {
   allLateData = snapshot.val() || {};
+  tempLateList = [];
   renderAll();
 });
 
