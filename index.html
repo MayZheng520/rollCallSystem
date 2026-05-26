@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>班級遲到統計系統</title>
+  <style>
+    body {
+      font-family: "Microsoft JhengHei", sans-serif;
+      padding: 20px;
+      background: #f4f6f8;
+    }
+
+    h1 {
+      text-align: center;
+    }
+
+    .card {
+      background: white;
+      padding: 20px;
+      margin: 15px auto;
+      max-width: 900px;
+      border-radius: 12px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    }
+
+    .student-grid {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 10px;
+    }
+
+    button {
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 18px;
+      background: #e0e0e0;
+    }
+
+    button.late {
+      background: #ffb74d;
+      color: #000;
+      font-weight: bold;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .status {
+      text-align: center;
+      padding: 12px;
+      border-radius: 8px;
+      background: #dcedc8;
+      font-weight: bold;
+    }
+
+    .warning {
+      background: #ef5350;
+      color: white;
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0.55; }
+    }
+
+    .date-box {
+      text-align: center;
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .note {
+      color: #555;
+      line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>班級遲到統計系統</h1>
+
+  <div class="card date-box">
+    今日日期：<span id="todayText"></span>
+  </div>
+
+  <div class="card">
+    <h2>幹部點選今日遲到號碼</h2>
+    <p class="note">點一下代表今天遲到，再點一次可以取消。</p>
+    <div id="studentButtons" class="student-grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>目前統計狀況</h2>
+    <p class="note">橘色代表最近三天內有遲到；紅色代表連續三天遲到。</p>
+    <div id="statusArea" class="status-grid"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+    // 這裡換成你的 Firebase 設定
+    const firebaseConfig = {
+  apiKey: "AIzaSyD60CAmUvj52wScu7CFADKdRz4KFPR_YZU",
+  authDomain: "rollcall-dd142.firebaseapp.com",
+  databaseURL: "https://rollcall-dd142-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "rollcall-dd142",
+  storageBucket: "rollcall-dd142.firebasestorage.app",
+  messagingSenderId: "748386138282",
+  appId: "1:748386138282:web:1596eb6fce8839908638d3",
+  measurementId: "G-9BPCT93DX7"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const className = "class-2-2";
+    const studentCount = 40;
+
+    const today = getDateString(0);
+    const yesterday = getDateString(-1);
+    const beforeYesterday = getDateString(-2);
+
+    const todayRef = ref(db, `lateData/${className}/${today}`);
+    const allDataRef = ref(db, `lateData/${className}`);
+
+    let todayLateList = [];
+    let allLateData = {};
+
+    document.getElementById("todayText").textContent = today;
+
+    function getDateString(offset) {
+      const date = new Date();
+      date.setDate(date.getDate() + offset);
+      return date.toISOString().slice(0, 10);
+    }
+
+    function renderStudentButtons() {
+      const area = document.getElementById("studentButtons");
+      area.innerHTML = "";
+
+      for (let i = 1; i <= studentCount; i++) {
+        const btn = document.createElement("button");
+        btn.textContent = i;
+
+        if (todayLateList.includes(i)) {
+          btn.classList.add("late");
+        }
+
+        btn.onclick = async () => {
+          if (todayLateList.includes(i)) {
+            todayLateList = todayLateList.filter(num => num !== i);
+          } else {
+            todayLateList.push(i);
+          }
+
+          todayLateList.sort((a, b) => a - b);
+          await set(todayRef, todayLateList);
+        };
+
+        area.appendChild(btn);
+      }
+    }
+
+    function renderStatus() {
+      const area = document.getElementById("statusArea");
+      area.innerHTML = "";
+
+      for (let i = 1; i <= studentCount; i++) {
+        const div = document.createElement("div");
+        div.className = "status";
+
+        const late1 = allLateData[today]?.includes(i);
+        const late2 = allLateData[yesterday]?.includes(i);
+        const late3 = allLateData[beforeYesterday]?.includes(i);
+
+        const recentLateCount = [late1, late2, late3].filter(Boolean).length;
+
+        div.textContent = `${i}號`;
+
+        if (late1 && late2 && late3) {
+          div.classList.add("warning");
+          div.textContent = `${i}號 紅燈`;
+        } else if (recentLateCount > 0) {
+          div.style.background = "#ffcc80";
+        }
+
+        area.appendChild(div);
+      }
+    }
+
+    onValue(todayRef, snapshot => {
+      todayLateList = snapshot.val() || [];
+      renderStudentButtons();
+    });
+
+    onValue(allDataRef, snapshot => {
+      allLateData = snapshot.val() || {};
+      renderStatus();
+    });
+  </script>
+
+</body>
+</html>
