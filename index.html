@@ -14,7 +14,7 @@ h1{text-align:center}
   background:white;
   padding:20px;
   margin:15px auto;
-  max-width:1050px;
+  max-width:1100px;
   border-radius:14px;
   box-shadow:0 3px 10px #0002;
 }
@@ -32,11 +32,10 @@ button{
 }
 .num{background:#e0e0e0}
 .late{background:#ffb74d;font-weight:bold}
+.pending{background:#90caf9;font-weight:bold}
 .save{background:#1976d2;color:white;font-weight:bold;margin-top:20px}
 .yellow{background:#fdd835!important;color:#000;font-weight:bold}
 .red{background:#e53935!important;color:white;font-weight:bold}
-.green{background:#66bb6a;color:white}
-.gray{background:#9e9e9e;color:white}
 input{padding:8px;font-size:16px}
 table{width:100%;border-collapse:collapse;margin-top:10px}
 td,th{border:1px solid #ccc;padding:8px;text-align:center}
@@ -58,20 +57,23 @@ td,th{border:1px solid #ccc;padding:8px;text-align:center}
 
 <div class="card">
   <h2>今日遲到點選</h2>
-  <p class="note">先點選今天遲到的座號，全部點完後再按「確認送出」，只需要輸入一次密碼。</p>
+  <p class="note">先點選今天遲到的座號，全部點完後再按「確認送出」。</p>
   <div id="studentButtons" class="grid"></div>
+
+  <h3>保留待定學生</h3>
+  <p class="note">若學生當天情況特殊，可設為保留待定，該日不列入該生連續遲到計算。</p>
+  <div id="pendingButtons" class="grid"></div>
 </div>
 
 <div class="card">
   <h2>兩日遲到警示：黃燈區</h2>
-  <p class="note">最近三個上課日內，已有兩天遲到者會顯示在這裡。</p>
+  <p class="note">當日與前一個上課日連續遲到者會顯示在這裡。</p>
   <div id="yellowList"></div>
 </div>
 
 <div class="card">
   <h2>三日遲到警示：紅燈區</h2>
-  <p class="note">最近三個上課日皆遲到者會顯示在這裡，並可標記是否已處罰。</p>
-  <p id="schoolDaysText"></p>
+  <p class="note">連續三個上課日遲到者會顯示在這裡，並可標記是否已處罰。</p>
   <div id="redList"></div>
 </div>
 
@@ -93,7 +95,7 @@ td,th{border:1px solid #ccc;padding:8px;text-align:center}
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
 
-const ADMIN_PASSWORD = "55660526"; // 改成你的幹部密碼
+const ADMIN_PASSWORD = "55660526";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD60CAmUvj52wScu7CFADKdRz4KFPR_YZU",
@@ -112,10 +114,11 @@ const db = getDatabase(app);
 const className = "class-2-2";
 const studentCount = 40;
 
-let selectedDate = new Date().toISOString().slice(0,10);
+let selectedDate = getTodayString();
 let allLateData = {};
 let punishmentData = {};
 let tempLateList = [];
+let tempPendingList = [];
 
 const datePicker = document.getElementById("datePicker");
 datePicker.value = selectedDate;
@@ -123,18 +126,32 @@ datePicker.value = selectedDate;
 datePicker.addEventListener("change", () => {
   selectedDate = datePicker.value;
   tempLateList = [];
+  tempPendingList = [];
   renderAll();
 });
 
 function checkPassword(){
-  const pw = prompt("請輸入密碼");
+  const pw = prompt("請輸入幹部密碼");
   return pw === ADMIN_PASSWORD;
 }
 
+function getTodayString(){
+  const d = new Date();
+  return formatDateLocal(d);
+}
+
+function formatDateLocal(date){
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function getDateOffset(dateStr, offset){
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0,10);
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + offset);
+  return formatDateLocal(date);
 }
 
 function isWeekend(dateStr){
@@ -153,12 +170,24 @@ function isHoliday(dateStr){
   return isWeekend(dateStr);
 }
 
-function getSchoolDays(endDate){
+function getLateList(date){
+  return allLateData[date]?.late || [];
+}
+
+function getPendingList(date){
+  return allLateData[date]?.pending || [];
+}
+
+function isPending(date, studentNum){
+  return getPendingList(date).includes(studentNum);
+}
+
+function getStudentSchoolDays(endDate, studentNum, needDays){
   const days = [];
   let date = endDate;
 
-  while(days.length < 3){
-    if(!isHoliday(date)){
+  while(days.length < needDays){
+    if(!isHoliday(date) && !isPending(date, studentNum)){
       days.push(date);
     }
     date = getDateOffset(date, -1);
@@ -167,8 +196,18 @@ function getSchoolDays(endDate){
   return days;
 }
 
-function getLateList(date){
-  return allLateData[date]?.late || [];
+function getNormalSchoolDays(endDate, needDays){
+  const days = [];
+  let date = endDate;
+
+  while(days.length < needDays){
+    if(!isHoliday(date)){
+      days.push(date);
+    }
+    date = getDateOffset(date, -1);
+  }
+
+  return days;
 }
 
 async function saveDateData(date, data){
@@ -184,11 +223,13 @@ async function saveDateData(date, data){
 window.toggleHoliday = async function(){
   const current = allLateData[selectedDate] || {
     late: [],
+    pending: [],
     holiday: isWeekend(selectedDate)
   };
 
   const newData = {
     late: current.late || [],
+    pending: current.pending || [],
     holiday: !isHoliday(selectedDate)
   };
 
@@ -208,15 +249,23 @@ function renderHoliday(){
 
 function renderButtons(){
   const area = document.getElementById("studentButtons");
+  const pendingArea = document.getElementById("pendingButtons");
+
   area.innerHTML = "";
+  pendingArea.innerHTML = "";
 
   const data = allLateData[selectedDate] || {
     late: [],
+    pending: [],
     holiday: isWeekend(selectedDate)
   };
 
   if(tempLateList.length === 0){
     tempLateList = [...(data.late || [])];
+  }
+
+  if(tempPendingList.length === 0){
+    tempPendingList = [...(data.pending || [])];
   }
 
   for(let i=1;i<=studentCount;i++){
@@ -242,6 +291,29 @@ function renderButtons(){
     area.appendChild(btn);
   }
 
+  for(let i=1;i<=studentCount;i++){
+    const btn = document.createElement("button");
+    btn.textContent = i + "號";
+    btn.className = "num";
+
+    if(tempPendingList.includes(i)){
+      btn.classList.add("pending");
+    }
+
+    btn.onclick = () => {
+      if(tempPendingList.includes(i)){
+        tempPendingList = tempPendingList.filter(n => n !== i);
+      }else{
+        tempPendingList.push(i);
+      }
+
+      tempPendingList.sort((a,b)=>a-b);
+      renderButtons();
+    };
+
+    pendingArea.appendChild(btn);
+  }
+
   const saveBtn = document.createElement("button");
   saveBtn.textContent = "確認送出";
   saveBtn.className = "save";
@@ -249,56 +321,66 @@ function renderButtons(){
   saveBtn.onclick = async () => {
     const newData = {
       late: tempLateList,
+      pending: tempPendingList,
       holiday: isHoliday(selectedDate)
     };
 
     await saveDateData(selectedDate, newData);
   };
 
-  area.appendChild(document.createElement("br"));
-  area.appendChild(saveBtn);
+  pendingArea.appendChild(document.createElement("br"));
+  pendingArea.appendChild(saveBtn);
 }
 
 function getLateWarningStudents(){
-  const schoolDays = getSchoolDays(selectedDate);
-
-  const todaySchoolDay = schoolDays[0];
-  const previousSchoolDay = schoolDays[1];
-  const thirdSchoolDay = schoolDays[2];
-
   const yellowStudents = [];
   const redStudents = [];
+  const yellowDatesMap = {};
+  const redDatesMap = {};
 
-  for(let i = 1; i <= studentCount; i++){
-    const lateToday = getLateList(todaySchoolDay).includes(i);
-    const latePrevious = getLateList(previousSchoolDay).includes(i);
-    const lateThird = getLateList(thirdSchoolDay).includes(i);
+  for(let i=1;i<=studentCount;i++){
+    const yellowDays = getStudentSchoolDays(selectedDate, i, 2);
+    const redDays = getStudentSchoolDays(selectedDate, i, 3);
 
-    if(lateToday && latePrevious && !lateThird){
-      yellowStudents.push(i);
-    }
+    const yellowLate = yellowDays.every(date => getLateList(date).includes(i));
+    const redLate = redDays.every(date => getLateList(date).includes(i));
 
-    if(lateToday && latePrevious && lateThird){
+    if(redLate){
       redStudents.push(i);
+      redDatesMap[i] = redDays;
+    }else if(yellowLate){
+      yellowStudents.push(i);
+      yellowDatesMap[i] = yellowDays;
     }
   }
 
-  return { schoolDays, yellowStudents, redStudents };
+  return {
+    normalSchoolDays: getNormalSchoolDays(selectedDate, 3),
+    yellowStudents,
+    redStudents,
+    yellowDatesMap,
+    redDatesMap
+  };
 }
+
 function renderYellowList(){
   const area = document.getElementById("yellowList");
-  const { schoolDays, yellowStudents } = getLateWarningStudents();
+  const { yellowStudents, yellowDatesMap } = getLateWarningStudents();
 
-  if(yellowStudents.length === 0){
-    area.innerHTML = `<p>目前沒有兩日遲到警示。</p>`;
-    return;
-  }
+  const sampleDays = getStudentSchoolDays(selectedDate, 1, 2);
 
-  let html = `<p>目前計算的三個上課日：<b>${schoolDays.join("、")}</b></p>`;
-  html += `<table>
+if(yellowStudents.length === 0){
+  area.innerHTML = `
+    <p>目前沒有兩日遲到黃燈警示。</p>
+    <p class="note">目前系統預設計算日期：${sampleDays.join("、")}</p>
+  `;
+  return;
+}
+
+  let html = `<table>
     <tr>
       <th>座號</th>
-      <th>遲到天數</th>
+      <th>連續遲到日期</th>
       <th>警示</th>
     </tr>`;
 
@@ -306,7 +388,7 @@ function renderYellowList(){
     html += `
       <tr>
         <td class="yellow">${num}號</td>
-        <td>2天</td>
+        <td>${yellowDatesMap[num].join("、")}</td>
         <td>黃燈提醒</td>
       </tr>`;
   });
@@ -317,10 +399,7 @@ function renderYellowList(){
 
 function renderRedList(){
   const area = document.getElementById("redList");
-  const { schoolDays, redStudents } = getLateWarningStudents();
-
-  document.getElementById("schoolDaysText").innerHTML =
-    `目前計算的三個上課日：<b>${schoolDays.join("、")}</b>`;
+  const { redStudents, redDatesMap } = getLateWarningStudents();
 
   if(redStudents.length === 0){
     area.innerHTML = "<p>目前沒有三日遲到紅燈警示。</p>";
@@ -336,14 +415,14 @@ function renderRedList(){
     </tr>`;
 
   redStudents.forEach(num => {
-    const key = `${selectedDate}_${num}`;
+    const key = `${redDatesMap[num].join("_")}_${num}`;
     const record = punishmentData[key];
     const punished = record?.status === "punished";
 
     html += `
       <tr>
         <td class="red">${num}號</td>
-        <td>${schoolDays.join("、")}</td>
+        <td>${redDatesMap[num].join("、")}</td>
         <td>${punished ? "已處罰" : "未處罰"}</td>
         <td>
           <button onclick="setPunishment(${num}, '${key}', '${punished ? "unpunished" : "punished"}')">
@@ -363,12 +442,12 @@ window.setPunishment = async function(num, key, status){
     return;
   }
 
-  const schoolDays = getSchoolDays(selectedDate);
+  const redDays = getStudentSchoolDays(selectedDate, num, 3);
 
   await set(ref(db, `punishments/${className}/${key}`), {
     student: num,
     endDate: selectedDate,
-    schoolDays: schoolDays,
+    schoolDays: redDays,
     status: status,
     updatedAt: new Date().toISOString()
   });
@@ -406,6 +485,7 @@ function renderAll(){
 onValue(ref(db, `lateData/${className}`), snapshot => {
   allLateData = snapshot.val() || {};
   tempLateList = [];
+  tempPendingList = [];
   renderAll();
 });
 
