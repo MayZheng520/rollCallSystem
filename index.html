@@ -93,7 +93,7 @@ td,th{border:1px solid #ccc;padding:8px;text-align:center}
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
 
-const ADMIN_PASSWORD = "1234"; // 改成你的幹部密碼
+const ADMIN_PASSWORD = "55660526"; // 改成你的幹部密碼
 
 const firebaseConfig = {
   apiKey: "AIzaSyD60CAmUvj52wScu7CFADKdRz4KFPR_YZU",
@@ -127,7 +127,7 @@ datePicker.addEventListener("change", () => {
 });
 
 function checkPassword(){
-  const pw = prompt("55660526");
+  const pw = prompt("請輸入密碼");
   return pw === ADMIN_PASSWORD;
 }
 
